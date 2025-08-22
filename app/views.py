@@ -1,6 +1,5 @@
-# Important imports
 from app import app
-from flask import request, render_template
+from flask import request, render_template, redirect, url_for
 import os
 from skimage.metrics import structural_similarity
 import imutils
@@ -12,58 +11,84 @@ app.config['INITIAL_FILE_UPLOADS'] = 'app/static/uploads'
 app.config['EXISTNG_FILE'] = 'app/static/original'
 app.config['GENERATED_FILE'] = 'app/static/generated'
 
+# Ensure directories exist
+os.makedirs(app.config['INITIAL_FILE_UPLOADS'], exist_ok=True)
+os.makedirs(app.config['EXISTNG_FILE'], exist_ok=True)
+os.makedirs(app.config['GENERATED_FILE'], exist_ok=True)
+
 # Route to home page
 @app.route("/", methods=["GET", "POST"])
 def index():
+    try:
+        # Execute if request is get
+        if request.method == "GET":
+            return render_template("index.html")
 
-	# Execute if request is get
-	if request.method == "GET":
-	    return render_template("index.html")
+        # Execute if request is post
+        if request.method == "POST":
+            # Check if file was uploaded
+            if 'file_upload' not in request.files:
+                return render_template("index.html", error="No file selected")
+            
+            file_upload = request.files['file_upload']
+            
+            # Check if filename is empty
+            if file_upload.filename == '':
+                return render_template("index.html", error="No file selected")
+            
+            filename = file_upload.filename
+            
+            # Resize and save the uploaded image
+            uploaded_image = Image.open(file_upload).resize((250,160))
+            uploaded_image.save(os.path.join(app.config['INITIAL_FILE_UPLOADS'], 'image.jpg'))
 
-	# Execute if reuqest is post
-	if request.method == "POST":
-                # Get uploaded image
-                file_upload = request.files['file_upload']
-                filename = file_upload.filename
-                
-                # Resize and save the uploaded image
-                uploaded_image = Image.open(file_upload).resize((250,160))
-                uploaded_image.save(os.path.join(app.config['INITIAL_FILE_UPLOADS'], 'image.jpg'))
+            # Check if original image exists
+            original_image_path = os.path.join(app.config['EXISTNG_FILE'], 'image.jpg')
+            if not os.path.exists(original_image_path):
+                return render_template("index.html", error="Original image not found")
 
-                # Resize and save the original image to ensure both uploaded and original matches in size
-                original_image = Image.open(os.path.join(app.config['EXISTNG_FILE'], 'image.jpg')).resize((250,160))
-                original_image.save(os.path.join(app.config['EXISTNG_FILE'], 'image.jpg'))
+            # Resize and save the original image
+            original_image = Image.open(original_image_path).resize((250,160))
+            original_image.save(os.path.join(app.config['EXISTNG_FILE'], 'image.jpg'))
 
-                # Read uploaded and original image as array
-                original_image = cv2.imread(os.path.join(app.config['EXISTNG_FILE'], 'image.jpg'))
-                uploaded_image = cv2.imread(os.path.join(app.config['INITIAL_FILE_UPLOADS'], 'image.jpg'))
+            # Read uploaded and original image as array
+            original_image_cv = cv2.imread(os.path.join(app.config['EXISTNG_FILE'], 'image.jpg'))
+            uploaded_image_cv = cv2.imread(os.path.join(app.config['INITIAL_FILE_UPLOADS'], 'image.jpg'))
 
-                # Convert image into grayscale
-                original_gray = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
-                uploaded_gray = cv2.cvtColor(uploaded_image, cv2.COLOR_BGR2GRAY)
+            # Check if images were read correctly
+            if original_image_cv is None or uploaded_image_cv is None:
+                return render_template("index.html", error="Error processing images")
 
-                # Calculate structural similarity
-                (score, diff) = structural_similarity(original_gray, uploaded_gray, full=True)
-                diff = (diff * 255).astype("uint8")
+            # Convert image into grayscale
+            original_gray = cv2.cvtColor(original_image_cv, cv2.COLOR_BGR2GRAY)
+            uploaded_gray = cv2.cvtColor(uploaded_image_cv, cv2.COLOR_BGR2GRAY)
 
-                # Calculate threshold and contours
-                thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-                cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = imutils.grab_contours(cnts)
-                
-                # Draw contours on image
-                for c in cnts:
-                    (x, y, w, h) = cv2.boundingRect(c)
-                    cv2.rectangle(original_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                    cv2.rectangle(uploaded_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            # Calculate structural similarity
+            (score, diff) = structural_similarity(original_gray, uploaded_gray, full=True)
+            diff = (diff * 255).astype("uint8")
 
-                # Save all output images (if required)
-                cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_original.jpg'), original_image)
-                cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_uploaded.jpg'), uploaded_image)
-                cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_diff.jpg'), diff)
-                cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_thresh.jpg'), thresh)
-                return render_template('index.html',pred=str(round(score*100,2)) + '%' + ' correct')
-       
-# Main function
-if __name__ == '__main__':
-    app.run(debug=True)
+            # Calculate threshold and contours
+            thresh = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+            cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cnts = imutils.grab_contours(cnts)
+            
+            # Draw contours on image
+            for c in cnts:
+                (x, y, w, h) = cv2.boundingRect(c)
+                cv2.rectangle(original_image_cv, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                cv2.rectangle(uploaded_image_cv, (x, y), (x + w, y + h), (0, 0, 255), 2)
+
+            # Save all output images
+            cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_original.jpg'), original_image_cv)
+            cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_uploaded.jpg'), uploaded_image_cv)
+            cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_diff.jpg'), diff)
+            cv2.imwrite(os.path.join(app.config['GENERATED_FILE'], 'image_thresh.jpg'), thresh)
+            
+            return render_template('index.html', pred=str(round(score*100,2)) + '%' + ' correct')
+    
+    except Exception as e:
+        app.logger.error(f"Error in index route: {str(e)}")
+        return render_template("index.html", error="An error occurred while processing the image")
+
+# Make sure to return something even if there's an unhandled case
+return render_template("index.html", error="Unexpected error")
