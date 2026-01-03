@@ -89,6 +89,5 @@ def index():
     except Exception as e:
         app.logger.error(f"Error in index route: {str(e)}")
         return render_template("index.html", error="An error occurred while processing the image")
-
-# Make sure to return something even if there's an unhandled case
-return render_template("index.html", error="Unexpected error")
+    
+    # Note: The problematic line has been removed
